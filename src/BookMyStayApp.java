@@ -1,108 +1,114 @@
+
+import java.io.*;
 import java.util.*;
 
+/**
+ * UC12: Data Persistence & System Recovery
+ */
 public class BookMyStayApp {
 
+    // ===== INVENTORY =====
+    static class RoomInventory implements Serializable {
+        Map<String, Integer> inventory = new HashMap<>();
+
+        public void addRoom(String type, int count) {
+            inventory.put(type, count);
+        }
+    }
+
+    // ===== RESERVATION =====
+    static class Reservation implements Serializable {
+        String guestName;
+        String roomType;
+        String reservationId;
+
+        public Reservation(String guestName, String roomType, String id) {
+            this.guestName = guestName;
+            this.roomType = roomType;
+            this.reservationId = id;
+        }
+    }
+
+    // ===== SYSTEM STATE (IMPORTANT) =====
+    static class SystemState implements Serializable {
+        RoomInventory inventory;
+        List<Reservation> history;
+
+        public SystemState(RoomInventory inventory, List<Reservation> history) {
+            this.inventory = inventory;
+            this.history = history;
+        }
+    }
+
+    // ===== PERSISTENCE SERVICE =====
+    static class PersistenceService {
+
+        private static final String FILE_NAME = "data.ser";
+
+        // SAVE
+        public void save(SystemState state) {
+            try (ObjectOutputStream out =
+                         new ObjectOutputStream(new FileOutputStream(FILE_NAME))) {
+
+                out.writeObject(state);
+                System.out.println("Data saved successfully");
+
+            } catch (Exception e) {
+                System.out.println("Error saving data");
+            }
+        }
+
+        // LOAD
+        public SystemState load() {
+            try (ObjectInputStream in =
+                         new ObjectInputStream(new FileInputStream(FILE_NAME))) {
+
+                System.out.println("Data loaded successfully");
+                return (SystemState) in.readObject();
+
+            } catch (Exception e) {
+                System.out.println("No previous data found. Starting fresh.");
+                return null;
+            }
+        }
+    }
+
+    // ===== MAIN =====
     public static void main(String[] args) {
 
-        RoomInventory inventory = new RoomInventory();
-        inventory.addRooms("Single", 3);
-        inventory.addRooms("Double", 2);
+        PersistenceService ps = new PersistenceService();
 
-        RoomAllocationService service = new RoomAllocationService();
+        // TRY TO LOAD DATA
+        SystemState state = ps.load();
 
-        Queue<Reservation> requests = new LinkedList<>();
-        requests.add(new Reservation("R1", "Single"));
-        requests.add(new Reservation("R2", "Single"));
-        requests.add(new Reservation("R3", "Double"));
-        requests.add(new Reservation("R4", "Single"));
+        RoomInventory inventory;
+        List<Reservation> history;
 
-        while (!requests.isEmpty()) {
-            Reservation r = requests.poll();
-            service.allocateRoom(r, inventory);
-        }
-    }
-}
+        if (state != null) {
+            inventory = state.inventory;
+            history = state.history;
+        } else {
+            // fresh start
+            inventory = new RoomInventory();
+            inventory.addRoom("Single Room", 2);
 
-class RoomAllocationService {
-
-    private Set<String> allocatedRoomIds;
-    private Map<String, Set<String>> assignedRoomsByType;
-
-    public RoomAllocationService() {
-        allocatedRoomIds = new HashSet<>();
-        assignedRoomsByType = new HashMap<>();
-    }
-
-    public void allocateRoom(Reservation reservation, RoomInventory inventory) {
-
-        String roomType = reservation.getRoomType();
-
-        if (!inventory.hasAvailable(roomType)) {
-            System.out.println("No rooms available for reservation " + reservation.getReservationId());
-            return;
+            history = new ArrayList<>();
+            history.add(new Reservation("Alice", "Single Room", "SI1"));
         }
 
-        String roomId = generateRoomId(roomType);
+        // Display recovered data
+        System.out.println("\n--- Current Inventory ---");
+        for (String type : inventory.inventory.keySet()) {
+            System.out.println(type + " -> " + inventory.inventory.get(type));
+        }
 
-        allocatedRoomIds.add(roomId);
+        System.out.println("\n--- Booking History ---");
+        for (Reservation r : history) {
+            System.out.println(r.guestName + " | " + r.reservationId);
+        }
 
-        assignedRoomsByType
-                .computeIfAbsent(roomType, k -> new HashSet<>())
-                .add(roomId);
-
-        inventory.allocate(roomType);
-
-        System.out.println("Reservation " + reservation.getReservationId() +
-                " allocated room " + roomId);
-    }
-
-    private String generateRoomId(String roomType) {
-
-        String id;
-        do {
-            id = roomType.substring(0, 1).toUpperCase() + (100 + new Random().nextInt(900));
-        } while (allocatedRoomIds.contains(id));
-
-        return id;
-    }
-}
-
-class Reservation {
-
-    private String reservationId;
-    private String roomType;
-
-    public Reservation(String reservationId, String roomType) {
-        this.reservationId = reservationId;
-        this.roomType = roomType;
-    }
-
-    public String getReservationId() {
-        return reservationId;
-    }
-
-    public String getRoomType() {
-        return roomType;
-    }
-}
-
-class RoomInventory {
-
-    private Map<String, Integer> rooms;
-
-    public RoomInventory() {
-        rooms = new HashMap<>();
-    }
-
-    public void addRooms(String type, int count) {
-        rooms.put(type, count);
-    }
-
-    public boolean hasAvailable(String type) {
-        return rooms.getOrDefault(type, 0) > 0;
-    }
-
-    public void allocate(String type) {
-        rooms.put(type, rooms.get(type) - 1);
+        // SAVE BEFORE EXIT
+        SystemState newState = new SystemState(inventory, history);
+        ps.save(newState);
     }
 }
